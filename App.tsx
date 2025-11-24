@@ -26,20 +26,35 @@ const App: React.FC = () => {
     setError(null);
   }, []);
 
-  const handleGameUpdate = useCallback((payload: any) => {
-    const updatedGame = payload.new;
-    if (updatedGame.players.length === 2 && updatedGame.status === 'waiting') {
-        supabase.from('games').update({ status: 'playing' }).eq('id', updatedGame.id).then(() => {
-            setGame(updatedGame);
-            setView('game');
-        });
-    } else {
-        setGame(updatedGame);
-        if (updatedGame.status === 'playing' && view !== 'game') {
-          setView('game');
-        }
+  const handleGameUpdate = useCallback(async (payload: any) => {
+    // The real-time payload is a notification that the game state has changed.
+    // The payload itself doesn't contain related data like the 'players' array.
+    // So, we re-fetch the entire game object to get a consistent, up-to-date state.
+    if (!game?.id) return;
+
+    const { data, error: fetchError } = await supabase
+      .from('games')
+      .select('*, players(*)')
+      .eq('id', game.id)
+      .single();
+
+    if (fetchError) {
+      console.error('Error fetching game on update:', fetchError);
+      setError('There was an issue syncing the game. Please refresh.');
+      return;
     }
-  }, [view]);
+
+    if (data) {
+      const fullUpdatedGame = data as Game;
+      setGame(fullUpdatedGame);
+
+      // If the game status is now 'playing' and our view isn't 'game' yet,
+      // it means the second player has joined and we should move from the lobby.
+      if (fullUpdatedGame.status === 'playing' && view !== 'game') {
+        setView('game');
+      }
+    }
+  }, [game?.id, view, setError]);
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -84,7 +99,7 @@ const App: React.FC = () => {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${game.id}` },
-        (payload) => handleGameUpdate(payload)
+        handleGameUpdate
       )
       .subscribe();
 
@@ -109,7 +124,7 @@ const App: React.FC = () => {
 
   const handleJoinGame = (newGame: Game, newPlayer: Player) => {
     setGameState(newGame, newPlayer);
-    if(newGame.players.length === 2) {
+    if(newGame.status === 'playing') {
         setView('game');
     } else {
         setView('lobby');

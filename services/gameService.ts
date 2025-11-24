@@ -1,3 +1,4 @@
+
 import { supabase } from '../lib/supabaseClient';
 import type { Game, Player, Vote } from '../types';
 
@@ -62,6 +63,16 @@ export const joinGame = async (gameCode: string, playerName: string): Promise<{ 
 
   if (playerError) throw new Error(playerError.message);
 
+  // With the second player now in, update the game status to 'playing'.
+  // This is the event Player 1's client is waiting for to leave the lobby.
+  const { error: updateError } = await supabase
+    .from('games')
+    .update({ status: 'playing' })
+    .eq('id', gameData.id);
+  
+  if (updateError) throw new Error(updateError.message);
+
+  // Fetch the final, updated game state to return to the joining player.
   const { data: updatedGameData, error: updatedGameError } = await supabase
     .from('games')
     .select('*, players(*)')
